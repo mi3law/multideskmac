@@ -23,6 +23,17 @@ function M.waitUntil(pred, timeout, done, interval)
   live[t] = true
 end
 
+-- hs.timer.doAfter that can't be garbage-collected before it fires.
+function M.after(seconds, fn)
+  local t
+  t = hs.timer.doAfter(seconds, function()
+    live[t] = nil
+    fn()
+  end)
+  live[t] = true
+  return t
+end
+
 function M.urlEncode(s)
   return (s:gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", string.byte(c)) end))
 end

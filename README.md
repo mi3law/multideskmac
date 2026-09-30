@@ -26,7 +26,10 @@ cd multideskmac
 
 Then give Hammerspoon Accessibility access in **System Settings → Privacy & Security → Accessibility**, and reload its config.
 
-**Recommended:** turn on **System Settings → Keyboard → Keyboard Shortcuts… → Mission Control → "Switch to Desktop 1, 2, …"**. You can use any key combination; MultiDeskMac reads whichever you choose. Switching through those shortcuts should be smoother. Without them, MultiDeskMac clicks the desktop in Mission Control, which takes about a second and briefly shows Mission Control.
+**Recommended:** in **System Settings → Keyboard → Keyboard Shortcuts… → Mission Control**, turn on **"Move left a space"**, **"Move right a space"** and **"Switch to Desktop 1, 2, …"**. You can use any key combinations; MultiDeskMac reads whichever you choose. With these on:
+
+- MultiDeskMac can **move** windows that Chrome opens by itself to their own desktop. macOS has no other way to move a window between desktops.
+- Switching desktops should be smoother. Without them, MultiDeskMac clicks the desktop in Mission Control, which takes about a second and briefly shows Mission Control.
 
 ## Use
 
@@ -50,6 +53,15 @@ When a profile **is already open** somewhere, the menu bar setting *If the profi
 - **Open a new window on its desktop** (default)
 - **Jump to its desktop** and focus its window
 - **Open a new window on a new desktop**
+
+### Profiles opened from Chrome itself
+
+Chrome's own profile menu, profile picker and "Open link as…" open the new window on the current desktop. MultiDeskMac watches for this. When a profile's window appears on a desktop that another profile already uses, it sends the window to that profile's own desktop, following the same rules as above:
+
+- **With the shortcuts above turned on**, it holds the window by its tab strip and switches desktops, taking the window along.
+- **Without them**, it can only handle a blank New Tab window, which it closes and reopens in the right place. Any other window stays where it is, and you get a notice.
+
+Hold **⌥** while the window opens to keep it where it is. You can turn this off with **Move profile windows Chrome opens itself** in the menu bar.
 
 ### New window here
 
@@ -77,6 +89,7 @@ Everything is in `~/.hammerspoon/init.lua`; see [`init.example.lua`](init.exampl
 - **Seeing desktops and windows.** Hammerspoon's window APIs only see the current desktop, so `deskhelper` (Swift) reads every desktop and every window's desktop through SkyLight's read-only calls. These are the private window-server APIs tools like yabai use. It never modifies window-server state.
 - **Telling profiles apart.** Chrome ends window titles with ` - Google Chrome - <profile label>` when several profiles exist. `deskhelper` reads the titles of windows on *other* desktops through Accessibility elements built from remote tokens (the technique [AltTab](https://github.com/lwouis/alt-tab-macos) uses). The results are cached per window, so lookups are usually instant.
 - **Switching and creating desktops.** There's no public API for either. MultiDeskMac presses your "Switch to Desktop N" shortcut if it's on. Otherwise it drives Mission Control through Accessibility, which is also the only way to add a desktop.
+- **Moving windows.** The private "move window to space" call has been a no-op since macOS 14.5. So MultiDeskMac holds the window by its tab strip with a synthetic mouse-down while it presses your desktop-switching shortcut, the same trick window managers use now.
 - **Opening a profile.** It switches first, then runs `open -na "Google Chrome" --args --profile-directory=… --new-window`. New windows land on the current desktop.
 - **Dock clicks.** An event tap hit-tests clicks near the Dock. When a click would jump to another desktop, it swallows the click and creates a window here instead.
 

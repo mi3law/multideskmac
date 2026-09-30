@@ -49,6 +49,10 @@ local function buildMenu()
     })
   end
   table.insert(items, { title = "If the profile is already open", menu = modeItems })
+  table.insert(items, {
+    title = "Move profile windows Chrome opens itself", checked = chrome.autoPlace(),
+    fn = function() chrome.setAutoPlace(not chrome.autoPlace()) end,
+  })
 
   local switching = spaces.shortcutsEnabled()
     and "Switching desktops: keyboard shortcuts"

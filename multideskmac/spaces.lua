@@ -92,14 +92,14 @@ function M.findEmptyDesktop(screen, snap)
   end
 end
 
--- The "Switch to Desktop N" keyboard shortcut, if the user has it turned on.
+-- macOS keyboard shortcuts (System Settings → Keyboard Shortcuts → Mission Control), if turned on.
 local SYMBOLIC_HOTKEYS = os.getenv("HOME") .. "/Library/Preferences/com.apple.symbolichotkeys.plist"
-local MOD_FLAGS = { shift = 0x20000, ctrl = 0x40000, alt = 0x80000, cmd = 0x100000 }
+local MOD_FLAGS = { shift = 0x20000, ctrl = 0x40000, alt = 0x80000, cmd = 0x100000, fn = 0x800000 }
+local MOVE_LEFT, MOVE_RIGHT = 79, 81 -- "Move left/right a space"
 
-function M.desktopShortcut(n)
-  if n < 1 or n > 16 then return nil end
+local function symbolicHotkey(id)
   local plist = hs.plist.read(SYMBOLIC_HOTKEYS)
-  local entry = plist and plist.AppleSymbolicHotKeys and plist.AppleSymbolicHotKeys[tostring(117 + n)]
+  local entry = plist and plist.AppleSymbolicHotKeys and plist.AppleSymbolicHotKeys[tostring(id)]
   if not (entry and entry.enabled and entry.value and entry.value.parameters) then return nil end
   local keycode, flags = entry.value.parameters[2], entry.value.parameters[3]
   local mods = {}
@@ -107,6 +107,12 @@ function M.desktopShortcut(n)
     if flags & bit ~= 0 then table.insert(mods, name) end
   end
   return { mods = mods, keycode = keycode }
+end
+
+-- "Switch to Desktop N"
+function M.desktopShortcut(n)
+  if n < 1 or n > 16 then return nil end
+  return symbolicHotkey(117 + n)
 end
 
 function M.shortcutsEnabled()
@@ -137,6 +143,77 @@ function M.switchTo(spaceID, done)
     if not ok then log.w("timed out switching to space " .. spaceID) end
     -- let the slide animation settle, so new windows land on the new desktop
     hs.timer.doAfter(0.25, function() done(ok) end)
+  end)
+end
+
+-- Key presses that get from the current desktop to spaceID: "Switch to Desktop N" if on,
+-- else repeated "Move left/right a space". nil if neither is turned on.
+function M.pathTo(spaceID, snap)
+  snap = snap or M.snapshot()
+  local n, cur = M.desktopNumber(spaceID, snap), M.desktopNumber(M.currentSpace(), snap)
+  if not (n and cur) then return nil end
+  local direct = M.desktopShortcut(n)
+  if direct then return { direct } end
+  local arrow = symbolicHotkey(n > cur and MOVE_RIGHT or MOVE_LEFT)
+  if not arrow then return nil end
+  local presses = {}
+  for _ = 1, math.abs(n - cur) do table.insert(presses, arrow) end
+  return presses
+end
+
+-- Move a window to another desktop the only way macOS still allows without SIP changes: hold it by
+-- its title bar (grab = a draggable point) while switching desktops with the keyboard shortcut.
+-- Takes you along to that desktop. done(ok).
+function M.carry(win, grab, spaceID, done)
+  local presses = M.pathTo(spaceID)
+  if not presses then return done(false) end
+  local T, mouse = hs.eventtap.event.types, hs.mouse.absolutePosition()
+  local held = { x = grab.x + 3, y = grab.y }
+  hs.eventtap.event.newMouseEvent(T.leftMouseDown, grab):post()
+  util.after(0.08, function()
+    hs.eventtap.event.newMouseEvent(T.leftMouseDragged, held):post()
+    local i = 0
+    local function nextPress()
+      i = i + 1
+      if i > #presses then
+        return util.waitUntil(function() return hs.spaces.focusedSpace() == spaceID end, 3, function()
+          util.after(0.3, function()
+            hs.eventtap.event.newMouseEvent(T.leftMouseUp, held):post()
+            hs.mouse.absolutePosition(mouse)
+            util.after(0.2, function()
+              local on = hs.spaces.windowSpaces(win) or {}
+              done(on[1] == spaceID)
+            end)
+          end)
+        end)
+      end
+      local before = hs.spaces.focusedSpace()
+      pressShortcut(presses[i])
+      util.waitUntil(function() return hs.spaces.focusedSpace() ~= before end, 2, function()
+        util.after(0.25, nextPress)
+      end)
+    end
+    util.after(0.15, nextPress)
+  end)
+end
+
+-- Create a desktop at the end of the screen's list without switching to it; done(spaceID or nil).
+function M.create(screen, done)
+  screen = screen or M.activeScreen()
+  local before = {}
+  for _, sid in ipairs(hs.spaces.spacesForScreen(screen) or {}) do before[sid] = true end
+  local ok, err = hs.spaces.addSpaceToScreen(screen, true)
+  if not ok then
+    log.e("addSpaceToScreen failed: " .. tostring(err))
+    return done(nil)
+  end
+  util.waitUntil(function()
+    for _, sid in ipairs(hs.spaces.spacesForScreen(screen) or {}) do
+      if not before[sid] then return sid end
+    end
+  end, 2, function(newID)
+    -- let Mission Control finish closing before anything else happens
+    util.after(0.6, function() done(newID) end)
   end)
 end
 
